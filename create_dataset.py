@@ -36,11 +36,13 @@ def batch_read_with_tokenization_parallel(lines, tok_name):
     def process(input_q, output_q, tok_name):
         tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
         while True:
-            line = input_q.get()
+            line = input_q.get().strip()
             if line is None:
                 output_q.put(None)
                 break
-            output_q.put((line, len(tokenizer(line))))
+            if not line.endswith("."):
+                line += "."
+            output_q.put((line, len(tokenizer.encode(line))))
 
     input_q = mp.Queue(maxsize=NCORE * 2)
     output_q = mp.Queue(maxsize=NCORE * 2)
@@ -121,39 +123,36 @@ if __name__ == "__main__":
                 accumulator_len = 0
 
                 for line, line_len in tqdm(batch_read_with_tokenization_parallel(input_file, args.fill_for_tokenizer), desc="Processing lines", position=1):
-
+                    print(line, "->", line_len)
                     if args.limit and written_lines >= args.limit:
                         break
 
                     line = line.strip()
 
-                    # if line is not long enough, pass
-                    if (args.fill_for_tokenizer is None) and (len(line.split()) <= args.min_word_per_sentence):
-                        continue
-
                     # without tokenizer write line by line
                     if args.fill_for_tokenizer is None:
-                        written_lines = write(line, written_lines)
-                        continue
-
-                    # length of actual line in tokens
-                    # line_len = len(tokenizer.encode(line))
-
-                    # if we are under the max len
-                    if accumulator is None:
-                        accumulator = line
-                        accumulator_len = line_len
-
-                    # if adding the new sequence is still under the max len
-                    elif accumulator_len + line_len <= args.target_len:
-                        accumulator = accumulator + line if accumulator else line
-                        accumulator_len += line_len
-    
-                    # if we went over, write and init accu with actual line
+                        if len(line.split()) >= args.min_word_per_sentence:
+                            written_lines = write(line, written_lines)
+                    
                     else:
-                        written_lines = write(accumulator, written_lines)
-                        accumulator = line
-                        accumulator_len = line_len
+                        # length of actual line in tokens
+
+                        # if we are under the max len
+                        if accumulator is None:
+                            accumulator = line
+                            accumulator_len = line_len
+
+                        # if adding the new sequence is still under the max len
+                        elif accumulator_len + line_len <= args.target_len:
+                            accumulator = accumulator + " " + line if accumulator else line
+                            accumulator_len += line_len
+        
+                        # if we went over, write and init accu with actual line
+                        else:
+                            print(f"Writing with len: {accumulator_len}")
+                            written_lines = write(accumulator, written_lines)
+                            accumulator = line
+                            accumulator_len = line_len
 
                 # if last accumulator was not written because for cycle ended before, write it now
                 if (not args.limit or written_lines >= args.limit) and accumulator:
