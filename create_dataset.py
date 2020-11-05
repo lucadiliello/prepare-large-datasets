@@ -123,7 +123,7 @@ if __name__ == "__main__":
                 accumulator_len = 0
 
                 for line, line_len in tqdm(batch_read_with_tokenization_parallel(input_file, args.fill_for_tokenizer), desc="Processing lines", position=1):
-                    print(line, "->", line_len)
+
                     if args.limit and written_lines >= args.limit:
                         break
 
@@ -149,7 +149,6 @@ if __name__ == "__main__":
         
                         # if we went over, write and init accu with actual line
                         else:
-                            print(f"Writing with len: {accumulator_len}")
                             written_lines = write(accumulator, written_lines)
                             accumulator = line
                             accumulator_len = line_len
