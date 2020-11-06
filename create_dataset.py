@@ -36,10 +36,12 @@ def batch_read_with_tokenization_parallel(lines, tok_name):
     def process(input_q, output_q, tok_name):
         tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
         while True:
-            line = input_q.get().strip()
+            line = input_q.get()
             if line is None:
                 output_q.put(None)
                 break
+            else:
+                line = line.strip()
             if not line.endswith("."):
                 line += "."
             output_q.put((line, len(tokenizer.encode(line))))

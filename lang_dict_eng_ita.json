@@ -1,0 +1,10 @@
+{
+    "en": {
+        "name": "english",
+        "id": 0
+    },
+    "it": {
+        "name": "italian",
+        "id": 1
+    }
+}
