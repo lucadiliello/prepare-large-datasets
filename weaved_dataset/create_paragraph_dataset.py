@@ -31,10 +31,14 @@ if __name__ == "__main__":
                             elif line.startswith("</doc>"):
                                 pass
                             else:
+                                while "  " in line:
+                                    line = " ".join(line.split('  '))
+
                                 page_documents[-1].append(line)
             
             print('Writing {} to {}...'.format(i, i + len(page_documents)), end='\r')
-            rows = [(i + rel_idx, doc[0], ' '.join(doc[1:])) for rel_idx, doc in enumerate(page_documents)] 
+            rows = [(i + rel_idx, doc[0], ' '.join(doc[1:])) for rel_idx, doc in enumerate(page_documents)]
+            
             for row in rows:
                 writer.writerow(row)
             i += len(page_documents)
