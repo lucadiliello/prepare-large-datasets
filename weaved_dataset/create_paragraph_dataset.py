@@ -1,7 +1,7 @@
-import sys
 import os
 from argparse import ArgumentParser
 import csv
+from tqdm import tqdm
 
 if __name__ == "__main__":
     parser = ArgumentParser("Parse multiple wikipedia processed dumps into a single dataset")
@@ -15,13 +15,15 @@ if __name__ == "__main__":
     with open(args.output_file, 'w') as fout:
         writer = csv.writer(fout, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-        for subfolder in os.listdir(args.input_folder):
+        subdirs = os.listdir(args.input_folder)
+        for subfolder in tqdm(subdirs, desc="Subfolder iterator", total=len(subdirs), position=1):
 
             path_subfolder = os.path.join(args.input_folder, subfolder)
 
             page_documents = []
-            for page in os.listdir(path_subfolder):
-                
+            pages = os.listdir(path_subfolder)
+            for page in tqdm(pages, desc="File iterator", total=len(pages), position=1):
+
                 with open(os.path.join(path_subfolder, page), 'r') as f:
                     for line in f.readlines():
                         line = line.strip()

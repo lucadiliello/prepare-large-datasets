@@ -10,7 +10,7 @@ Download a specific wikipedia dump:
 ./download_dump.sh it
 ```
 
-Download dumps for all languages used by BERT:
+Download dumps for all languages used by multilingual BERT:
 
 ```bash
 for i in $(cat required_languages.tsv| cut -f2); do ./download_dump.sh $i; done
@@ -54,6 +54,14 @@ python create_dataset.py -i data/*_preprocessed.txt -o data/multilingual_dataset
 ```
 
 Each line will contain an additional id of the language. `ids` are store in `lang_dict.json`.
+
+
+## Test
+Test that created dataset has an average length similar to the one defined through `--target_len`
+```bash
+python test_dataset.py -i <create_dataset.tsv> --tokenizer <tokenizer-name> --limit 10000 --column 1
+```
+If `--tokenizer` is omitted, words average will be counted. `--limit` limits the number of rows to read. The first thousands are usually more than enough for a good statistic. `--column` specifies the column in the `tsv` file in which sentences are stored, default `1`.
 
 
 # Credits

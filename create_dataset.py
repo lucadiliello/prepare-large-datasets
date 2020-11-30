@@ -2,7 +2,6 @@ import os
 from argparse import ArgumentParser
 import csv
 import json
-import numpy
 import transformers
 from tqdm import tqdm
 from itertools import islice
