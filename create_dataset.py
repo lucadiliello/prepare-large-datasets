@@ -22,7 +22,6 @@ def batch_read_with_tokenization(file_descriptor, tokenizer=None):
             for a in zip(n_lines, lengths):
                 yield a
 
-
 def batch_read_with_tokenization_parallel(lines, tok_name):
 
     def gen_to_queue(input_q, lines):
@@ -79,6 +78,8 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--force_overwrite', action="store_true",
                         help='Overwrite output file if it does already exist')
     parser.add_argument('--fill_for_tokenizer', type=str, default=None, required=False,
+                        help="Path of some pre-trained tokenizer")
+    parser.add_argument('--separate_documents', action="store_true",
                         help="Path of some pre-trained tokenizer")
     parser.add_argument('--target_len', type=int, default=128, required=False)
 
@@ -144,7 +145,10 @@ if __name__ == "__main__":
                             accumulator_len = line_len
 
                         # if adding the new sequence is still under the max len
-                        elif accumulator_len + line_len <= args.target_len:
+                        elif (
+                            (accumulator_len + line_len <= args.target_len) and
+                            (not args.separate_documents or len(line) > 0) # empty lines are used to separate documents
+                        ):
                             accumulator = accumulator + " " + line if accumulator else line
                             accumulator_len += line_len
         

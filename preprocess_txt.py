@@ -14,7 +14,7 @@ def main():
         with open(wiki_dump_file_in, 'r', encoding='utf-8') as in_f:
             for line in tqdm(in_f, desc="Preprocessing file"):
                 sentences = text_to_sentences(line)
-                out_f.write(sentences + '\n')
+                out_f.write(sentences)
     print(f'Successfully pre-processed {wiki_dump_file_in} to {wiki_dump_file_out}...')
 
 
