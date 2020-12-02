@@ -48,15 +48,15 @@ def writer(filename: str, out_queue: Queue, n_proc: int, total: int):
 
 
 def main(args):
-    
+
     logging.info(f'Pre-processing {args.input_file} to {args.output_file}...')
 
     with open(args.input_file, 'r') as in_f:
         total = sum(1 for _ in tqdm(in_f, desc="Overviewing input files"))
 
     logging.info('Preparing queues for multiprocessing')
-    in_queue = Queue()
-    out_queue = Queue()
+    in_queue = Queue(maxsize=100000)
+    out_queue = Queue(maxsize=100000)
 
     logging.info('Spawning worker processes')
     processes = [Process(target=worker, args=(in_queue, out_queue)) for _ in range(args.processes)]
