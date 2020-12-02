@@ -59,7 +59,7 @@ def main(args):
 
             with Pool(args.processes) as p:
                 with tqdm(total=len(members), desc="Processing internal files") as pbar:                        
-                    for res in p.imap(worker, input_containers, chunksize=100):
+                    for res in p.imap(worker, input_containers, chunksize=1000):
                         pbar.update()
                         for r in res:
                             out_file.write(r)

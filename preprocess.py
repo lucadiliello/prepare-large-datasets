@@ -19,7 +19,9 @@ def main(args):
         with open(args.input_file, 'r', encoding='utf-8') as in_f:
             for line in tqdm(in_f, desc="Preprocessing file"):
                 sentences = text_to_sentences(line)
-                out_f.write(sentences + "\n")
+                sentences.replace("\n", " ")
+                out_f.write(sentences)
+                out_f.write("\n")
 
     logging.info(f'Successfully pre-processed {args.input_file} to {args.output_file}...')
 
