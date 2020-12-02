@@ -1,6 +1,7 @@
 import os
 import logging
 from pathlib import Path
+from sys import maxsize
 from tqdm import tqdm
 from blingfire import text_to_sentences
 from argparse import ArgumentParser
@@ -19,7 +20,7 @@ def worker(in_queue: Queue, out_queue: Queue):
             out_queue.put(None)
             break
         sentences = text_to_sentences(text)
-        sentences.replace("\n", " ")
+        sentences = sentences.replace("\n", " ").strip()
         out_queue.put(sentences)
 
 # fill input queue by reading from source file
@@ -55,8 +56,8 @@ def main(args):
         total = sum(1 for _ in tqdm(in_f, desc="Overviewing input files"))
 
     logging.info('Preparing queues for multiprocessing')
-    in_queue = Queue() 
-    out_queue = Queue()
+    in_queue = Queue(maxsize=2**14) 
+    out_queue = Queue(maxsize=2**14)
 
     logging.info('Spawning worker processes')
     processes = [Process(target=worker, args=(in_queue, out_queue)) for _ in range(args.processes)]
