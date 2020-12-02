@@ -2,34 +2,30 @@ import os
 from argparse import ArgumentParser
 import csv
 import json
+import logging
 import transformers
 from tqdm import tqdm
-from itertools import islice
-import multiprocessing as mp
+from multiprocessing import cpu_count, Pool, Queue
 
-NCORE = mp.cpu_count()
+
+FORMAT_LOGGING = '%(levelname)s: %(message)s'
+logging.basicConfig(format=FORMAT_LOGGING)
+logging.getLogger().setLevel(logging.INFO)
+
+
 
 def get_lang_from_wikipedia_filename(filename):
     return os.path.basename(filename).strip().lower().split("-")[0].replace("wiki", "")
 
-def batch_read_with_tokenization(file_descriptor, tokenizer=None):
-    if tokenizer is None:
-        for line in file_descriptor:
-            yield (line, 0)
-    else:
-        for n_lines in iter(lambda: tuple(islice(file_descriptor, 100000)), ()):
-            lengths = [len(x) for x in tokenizer(n_lines)['input_ids']]
-            for a in zip(n_lines, lengths):
-                yield a
+def batch_read_with_tokenization_parallel(filename, tok_name, n_cpus):
 
-def batch_read_with_tokenization_parallel(lines, tok_name):
-
-    def gen_to_queue(input_q, lines):
-        # This function simply consume our generator and write it to the input queue
-        for line in lines:
-            input_q.put(line)
-        for _ in range(NCORE):    # Once generator is consumed, send end-signal
-            input_q.put(None)
+    def gen_to_queue(input_q, filename):
+        with open(filename) as input_file:
+            # This function simply consume our generator and write it to the input queue
+            for line in input_file:
+                input_q.put(line)
+            for _ in range(n_cpus):    # Once generator is consumed, send end-signal
+                input_q.put(None)
 
     def process(input_q, output_q, tok_name):
         tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
@@ -44,18 +40,18 @@ def batch_read_with_tokenization_parallel(lines, tok_name):
                 line += "."
             output_q.put((line, len(tokenizer.encode(line))))
 
-    input_q = mp.Queue(maxsize=NCORE * 2)
-    output_q = mp.Queue(maxsize=NCORE * 2)
+    input_q = Queue()
+    output_q = Queue()
 
-    gen_pool = mp.Pool(1, initializer=gen_to_queue, initargs=(input_q, lines))
-    pool = mp.Pool(NCORE, initializer=process, initargs=(input_q, output_q, tok_name))
+    gen_pool = Pool(1, initializer=gen_to_queue, initargs=(input_q, filename))
+    pool = Pool(n_cpus, initializer=process, initargs=(input_q, output_q, tok_name))
 
     finished_workers = 0
     while True:
         line = output_q.get()
         if line is None:
             finished_workers += 1
-            if finished_workers == NCORE:
+            if finished_workers == n_cpus:
                 break
         else:
             yield line
@@ -81,6 +77,8 @@ if __name__ == "__main__":
                         help="Path of some pre-trained tokenizer")
     parser.add_argument('--separate_documents', action="store_true",
                         help="Path of some pre-trained tokenizer")
+    parser.add_argument('--processes', type=int, default=cpu_count(), required=False,
+                        help="Number or parallel processes to use")
     parser.add_argument('--target_len', type=int, default=128, required=False)
 
     # get NameSpace of paramters
@@ -119,50 +117,49 @@ if __name__ == "__main__":
                 writer.writerow(row)
                 return written_lines + 1
 
-            with open(_file) as input_file:
+            # used to accumulate sequences
+            accumulator = None
+            accumulator_len = 0
 
-                accumulator = None
-                accumulator_len = 0
+            for line, line_len in tqdm(batch_read_with_tokenization_parallel(_file, args.fill_for_tokenizer, args.processes), desc="Processing lines", position=1):
 
-                for line, line_len in tqdm(batch_read_with_tokenization_parallel(input_file, args.fill_for_tokenizer), desc="Processing lines", position=1):
+                if args.limit and written_lines >= args.limit:
+                    break
 
-                    if args.limit and written_lines >= args.limit:
-                        break
+                line = line.strip()
 
-                    line = line.strip()
+                # without tokenizer write line by line
+                if args.fill_for_tokenizer is None:
+                    if len(line.split()) >= args.min_word_per_sentence:
+                        written_lines = write(line, written_lines)
+                
+                else:
+                    # length of actual line in tokens
 
-                    # without tokenizer write line by line
-                    if args.fill_for_tokenizer is None:
-                        if len(line.split()) >= args.min_word_per_sentence:
-                            written_lines = write(line, written_lines)
-                    
+                    # if we are under the max len
+                    if accumulator is None:
+                        accumulator = line
+                        accumulator_len = line_len
+
+                    # if adding the new sequence is still under the max len
+                    elif (
+                        (accumulator_len + line_len <= args.target_len) and
+                        (not args.separate_documents or len(line) > 0) # empty lines are used to separate documents
+                    ):
+                        accumulator = accumulator + " " + line if accumulator else line
+                        accumulator_len += line_len
+    
+                    # if we went over, write and init accu with actual line
                     else:
-                        # length of actual line in tokens
+                        written_lines = write(accumulator, written_lines)
+                        accumulator = line
+                        accumulator_len = line_len
 
-                        # if we are under the max len
-                        if accumulator is None:
-                            accumulator = line
-                            accumulator_len = line_len
+            # if last accumulator was not written because for cycle ended before, write it now
+            if (not args.limit or written_lines >= args.limit) and accumulator:
+                written_lines = write(accumulator, written_lines)
 
-                        # if adding the new sequence is still under the max len
-                        elif (
-                            (accumulator_len + line_len <= args.target_len) and
-                            (not args.separate_documents or len(line) > 0) # empty lines are used to separate documents
-                        ):
-                            accumulator = accumulator + " " + line if accumulator else line
-                            accumulator_len += line_len
-        
-                        # if we went over, write and init accu with actual line
-                        else:
-                            written_lines = write(accumulator, written_lines)
-                            accumulator = line
-                            accumulator_len = line_len
-
-                # if last accumulator was not written because for cycle ended before, write it now
-                if (not args.limit or written_lines >= args.limit) and accumulator:
-                    written_lines = write(accumulator, written_lines)
-
-                print(f"Written {written_lines} lines per file {_file} with id {_id}")
+            print(f"Written {written_lines} lines per file {_file} with id {_id}")
 
     print("Done")
 

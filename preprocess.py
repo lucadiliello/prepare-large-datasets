@@ -1,52 +1,25 @@
-import os
 import logging
-from pathlib import Path
-from sys import maxsize
-from tqdm import tqdm
-from blingfire import text_to_sentences
+import os
 from argparse import ArgumentParser
-from multiprocessing import Queue, Process, cpu_count
+from multiprocessing import Pool, cpu_count
+from pathlib import Path
+
+from blingfire import text_to_sentences
+from tqdm import tqdm
 
 
 FORMAT_LOGGING = '%(levelname)s: %(message)s'
 logging.basicConfig(format=FORMAT_LOGGING)
 logging.getLogger().setLevel(logging.INFO)
 
-# process lines
-def worker(in_queue: Queue, out_queue: Queue):
-    while True:
-        text = in_queue.get()
-        if text is None:
-            out_queue.put(None)
-            break
-        sentences = text_to_sentences(text)
-        sentences = sentences.replace("\n", " ").strip()
-        out_queue.put(sentences)
-
-# fill input queue by reading from source file
-def filler(filename: str, in_queue: Queue, n_proc: int):
-    with open(filename, 'r') as in_f:
-        for line in in_f:
-            in_queue.put(line)
-    for _ in range(n_proc):
-        in_queue.put(None)
-
-# write from output queue to dest file
-def writer(filename: str, out_queue: Queue, n_proc: int, total: int):
-    finished = 0
-    pbar = tqdm(total=total, desc="Preprocessing file")
-    with open(filename, 'w') as out_f:
-        while True:
-            line = out_queue.get()
-            if line is None:
-                finished += 1
-                if finished == n_proc:
-                    break
-            else:
-                pbar.update()
-                out_f.write(line)
-                out_f.write("\n")
-
+def clean_text(text):
+    text = text.strip()
+    if len(text) == 0:
+        return "\n"
+    sentences = text_to_sentences(text).replace("\n", " ").strip()
+    if len(text) > 0 and len(sentences) == 0:
+        return "" # this was a text line that contained not parseable text
+    return sentences + "\n"
 
 def main(args):
 
@@ -55,30 +28,13 @@ def main(args):
     with open(args.input_file, 'r') as in_f:
         total = sum(1 for _ in tqdm(in_f, desc="Overviewing input files"))
 
-    logging.info('Preparing queues for multiprocessing')
-    in_queue = Queue(maxsize=2**14) 
-    out_queue = Queue(maxsize=2**14)
-
-    logging.info('Spawning worker processes')
-    processes = [Process(target=worker, args=(in_queue, out_queue)) for _ in range(args.processes)]
-    for p in processes:
-        p.start()
-
-    logging.info('Spawning fill process')
-    process_fill = Process(target=filler, args=(args.input_file, in_queue, args.processes))
-    process_fill.start()
-
-    logging.info('Spawning writer process')
-    process_writer = Process(target=writer, args=(args.output_file, out_queue, args.processes, total))
-    process_writer.start()
-
-    logging.info('Waiting for processes to complete')
-    process_fill.join()
-    for p in processes:
-        p.join()
-    process_writer.join()
-
-    logging.info(f'Successfully pre-processed {args.input_file} to {args.output_file}...')
+    with open(args.output_file, 'w') as out_f:
+        with open(args.input_file, 'r') as in_f:
+            with Pool(args.processes) as p:
+                with tqdm(total=total, desc="Preprocessing file") as pbar:                        
+                    for res in p.imap(clean_text, in_f, chunksize=args.chunk_size):
+                        pbar.update()
+                        out_f.write(res)
 
 
 if __name__ == '__main__':
@@ -94,6 +50,8 @@ if __name__ == '__main__':
                         help='Overwrite output file if it does already exist')
     parser.add_argument('-p', '--processes', type=int, default=cpu_count(),
                         help='Number of processes to use')
+    parser.add_argument('-c', '--chunk_size', type=int, default=10000,
+                        help='Number of entries per process. Increase with very large datasets.')
 
     args = parser.parse_args()
 
