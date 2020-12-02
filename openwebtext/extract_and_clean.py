@@ -15,7 +15,7 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 def clean_text(text):
-    return "\n".join(text.split("\n")).strip() + "\n"
+    return "\n".join([x for x in text.split("\n") if len(x) > 0]).strip() + "\n"
 
 def worker(input_file):
     decompressed_file = io.BytesIO(lzma.decompress(input_file))
@@ -58,8 +58,8 @@ def main(args):
             logging.info("Spawning processes")
 
             with Pool(args.processes) as p:
-                with tqdm(total=len(members), desc="Processing internal files") as pbar:                        
-                    for res in p.imap(worker, input_containers, chunksize=1000):
+                with tqdm(total=len(members), desc="Processing internal files") as pbar:
+                    for res in p.imap(worker, input_containers, chunksize=20):
                         pbar.update()
                         for r in res:
                             out_file.write(r)
