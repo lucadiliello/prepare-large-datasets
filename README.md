@@ -21,6 +21,20 @@ pip install blingfire
 python preprocess.py data/enwiki-latest-pages-articles.txt
 ```
 
+Generate pre-processed data files are of the form:
+```txt
+paragraph-0 # doc 0
+paragraph-1 # doc 0
+
+paragraph-0 # doc 1
+paragraph-1 # doc 1
+paragraph-2 # doc 1
+
+...
+```
+
+that is, documents are separated by empty lines and paragraphs within documents stay on different lines.
+
 
 ## Create the dataset
 
