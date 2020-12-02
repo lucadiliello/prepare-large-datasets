@@ -30,7 +30,7 @@ def main(args):
         with open(args.input_file, 'r') as in_f:
             with Pool(args.processes) as p:
                 with tqdm(total=total, desc="Preprocessing file") as pbar:                        
-                    for res in p.imap(clean_text, in_f, chunksize=1000):
+                    for res in p.imap(clean_text, in_f):
                         pbar.update()
                         out_f.write(res)
                         out_f.write("\n")
