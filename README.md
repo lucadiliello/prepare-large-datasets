@@ -18,7 +18,7 @@ Preprocess data and save in a file with the same name and `_preprocessed` suffix
 
 ```bash
 pip install blingfire
-python preprocess_txt.py data/enwiki-latest-pages-articles.txt
+python preprocess.py data/enwiki-latest-pages-articles.txt
 ```
 
 
