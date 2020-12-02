@@ -15,7 +15,7 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 def clean_text(text):
-    return "\n".join([x for x in text.split("\n") if len(x) > 0]).strip() + "\n"
+    return "\n".join([x for x in text.split("\n") if len(x) > 0]).strip() + "\n\n"
 
 def worker(input_file):
     decompressed_file = io.BytesIO(lzma.decompress(input_file))
