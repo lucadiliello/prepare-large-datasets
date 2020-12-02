@@ -55,8 +55,8 @@ def main(args):
         total = sum(1 for _ in tqdm(in_f, desc="Overviewing input files"))
 
     logging.info('Preparing queues for multiprocessing')
-    in_queue = Queue(maxsize=100000)
-    out_queue = Queue(maxsize=100000)
+    in_queue = Queue() 
+    out_queue = Queue()
 
     logging.info('Spawning worker processes')
     processes = [Process(target=worker, args=(in_queue, out_queue)) for _ in range(args.processes)]
