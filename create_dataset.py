@@ -2,6 +2,7 @@ import os
 from argparse import ArgumentParser
 import csv
 import logging
+from typing import List
 import transformers
 from tqdm import tqdm
 from multiprocessing import cpu_count, Process, Queue
@@ -10,44 +11,85 @@ from multiprocessing import cpu_count, Process, Queue
 FORMAT_LOGGING = '%(levelname)s: %(message)s'
 logging.basicConfig(format=FORMAT_LOGGING)
 logging.getLogger().setLevel(logging.INFO)
+args_tokenizer = {'return_token_type_ids': False, 'return_attention_mask': False, 'return_length': True}
 
 
-# process a single line
-def parse_line(line: str, tokenizer: transformers.PreTrainedTokenizer):
-    line = line.strip()
-    if not line.endswith('.'): line += '.'
-    return line, len(tokenizer.encode(line)) if tokenizer is not None else None
+# process a batch of lines with a tokenizer
+def parse_line(lines: str, tokenizer: transformers.PreTrainedTokenizer):
+    lines = [line.strip() for line in lines]
+    lines = [line + '.' if not line.endswith('.') and len(line) > 0 else line for line in lines]
+    return zip(lines, tokenizer(lines, **args_tokenizer)['length']) if tokenizer is not None else zip(lines, [None] * len(lines))
 
 
 # process a set of lines in a separate process with a dedicated tokenizer
 def worker(in_queue: Queue, out_queue: Queue, tokenizer_name: str = None, accumulate: int = 1):
     tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name) if tokenizer_name else None
+    acc = list()
     while True:
-        line = in_queue.get()
-        if line is None:
+        new_line = in_queue.get()
+        if new_line is None:
+            for res in parse_line(acc, tokenizer):
+                out_queue.put(res)
             out_queue.put(None)
             break
-        out_queue.put(parse_line(line, tokenizer))
+
+        acc.append(new_line)
+        if len(acc) >= accumulate:
+            for res in parse_line(acc, tokenizer):
+                out_queue.put(res)
+            acc.clear()
 
 
 # read from input and fill input queue
-def filler(filename: str, in_queue: Queue, n_cpus: int):
+def filler(filename: str, in_queues: List[Queue], n_cpus: int):
     with open(filename) as in_fi:
+        i = 0
         for line in in_fi:
-            in_queue.put(line)
-    for _ in range(n_cpus):
-        in_queue.put(None)
+            in_queues[i].put(line)
+            i = (i + 1) % n_cpus
+    for i in range(len(in_queues)):
+        in_queues[i].put(None)
+
+
+# heuristically split a paragraph in 2+ pieces of which the first is respecting the target_len requirement
+def split_line_heuristic(line: str, line_len: int, target_len: int):
+    sentences = [l.strip() + "." for l in line.split(".") if len(l.strip()) > 0]
+    approx_lengths = [int(len(sentence) * (line_len / len(line))) for sentence in sentences]
+    res = [] # tuples of (sentences, len), last should be given to the accumulator
+    acc = []
+    acc_lengths = 0
+    for sentence, approx_len in zip(sentences, approx_lengths):
+        if acc_lengths == 0 or acc_lengths + approx_len <= target_len:
+            acc.append(sentence)
+            acc_lengths += approx_len
+        else:
+            res.append(
+                (
+                    " ".join(acc),
+                    acc_lengths
+                )
+            )
+            acc = [sentence]
+            acc_lengths = approx_len
+    res.append(
+        (
+            " ".join(acc),
+            acc_lengths
+        )
+    )
+    return res
 
 
 # read from out_queue and write to file
 def writer(
-    out_queue: Queue,
+    out_queues: List[Queue],
     filename: str,
     n_cpus: int,
     limit: int = None,
     min_word_per_sentence: int = 1,
     separate_documents: bool = False,
-    target_len: int = 510
+    target_len: int = 510,
+    no_split_long_paragraphs: bool = False
 ):
 
     # used to accumulate sequences
@@ -56,12 +98,15 @@ def writer(
     written_lines = 0
     terminated = 0
     pbar = tqdm(desc="Writing to output file")
+    i = 0
 
     with open(filename, "w") as out_file:
         writer = csv.writer(out_file, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
         while True:
+            
+            res = out_queues[i].get()
+            i = (i + 1) % n_cpus
 
-            res = out_queue.get()
             if res is None:
                 terminated += 1
                 if terminated == n_cpus:
@@ -86,17 +131,22 @@ def writer(
                     writer.writerow([written_lines, accumulator])
                     written_lines += 1
                     pbar.update()
+                    accumulator = None
+                    accumulator_len = None
+
+                # if we have an empty accumulator let's use the new line to init it
+                elif accumulator is None:
                     accumulator = line
                     accumulator_len = line_len
 
-                # if we are under the max len
-                if accumulator is None:
-                    accumulator = line
-                    accumulator_len = line_len
-
-                    # TODO: if single line is > target_len, split in place and write many times
-                    if accumulator_len > target_len:
-                        pass
+                    # new feature to split also very long single paragraphs
+                    if accumulator_len > target_len and not no_split_long_paragraphs:
+                        splitted_line = split_line_heuristic(accumulator, accumulator_len, target_len)
+                        for sentence, _ in splitted_line[:-1]:
+                            writer.writerow([written_lines, sentence])
+                            written_lines += 1
+                            pbar.update()
+                        accumulator, accumulator_len = splitted_line[-1]
 
                 # if adding the new sequence is still under the max len
                 elif accumulator_len + line_len <= target_len:
@@ -111,6 +161,15 @@ def writer(
                     accumulator = line
                     accumulator_len = line_len
 
+                    # new feature to split also very long single paragraphs
+                    if accumulator_len > target_len and not no_split_long_paragraphs:
+                        splitted_line = split_line_heuristic(accumulator, accumulator_len, target_len)
+                        for sentence, _ in splitted_line[:-1]:
+                            writer.writerow([written_lines, sentence])
+                            written_lines += 1
+                            pbar.update()
+                        accumulator, accumulator_len = splitted_line[-1]
+
             if limit is not None and written_lines >= limit:
                 break
 
@@ -119,10 +178,9 @@ def writer(
             writer.writerow([written_lines, accumulator])
             written_lines += 1
             pbar.update()
-        
+
         pbar.close()
         logging.info(f"Written {written_lines} lines successfully.")
-
 
 
 def main(args):
@@ -131,31 +189,38 @@ def main(args):
     if os.path.isfile(args.output_file):
         assert args.force_overwrite, f"Cannot overwrite {args.output_file}, add -f option if you are cocky"
         os.remove(args.output_file)
-    assert os.path.isfile(args.input_file), f"Input file {args.input} does not exist"
+    assert os.path.isfile(args.input_file), f"Input file {args.input_file} does not exist"
 
     logging.info("Creating queues")
-    in_queue = Queue()
-    out_queue = Queue()
+    in_queues = [Queue() for _ in range(args.processes)]
+    out_queues = [Queue() for _ in range(args.processes)]
 
-    logging.info("Spawning produces")
-    filler_process = Process(target=filler, args=(args.input_file, in_queue, args.processes))
-    
+    logging.info("Spawning producer")
+    filler_process = Process(target=filler, args=(args.input_file, in_queues, args.processes))
+
     logging.info("Spawning workers")
-    workers = [Process(target=worker, args=(in_queue, out_queue, args.fill_for_tokenizer)) for _ in range(args.processes)]
+    workers = [
+        Process(target=worker,
+                args=(in_queues[i], out_queues[i]),
+                kwargs={'tokenizer_name': args.fill_for_tokenizer, 'accumulate': args.batch_tokenization}) for i in range(args.processes)]
+    
     logging.info("Starting workers")
     for w in workers:
         w.start()
 
     logging.info("Starting producer")
     filler_process.start()
-    
+
     logging.info("Spawning writer")
-    writer_process = Process(target=writer, args=(out_queue, 
-                                                  args.output_file,
-                                                  args.processes), kwargs={'limit': args.limit,
-                                                                           'min_word_per_sentence': args.min_word_per_sentence,
-                                                                           'separate_documents': args.separate_documents,
-                                                                           'target_len': args.target_len})
+    writer_process = Process(target=writer, 
+                             args=(out_queues, args.output_file, args.processes), 
+                             kwargs={'limit': args.limit,
+                                      'min_word_per_sentence': args.min_word_per_sentence,
+                                      'separate_documents': args.separate_documents,
+                                      'target_len': args.target_len,
+                                      'no_split_long_paragraphs': args.no_split_long_paragraphs
+                                    }
+                            )
 
     logging.info("Starting writer")
     writer_process.start()
@@ -192,7 +257,8 @@ if __name__ == "__main__":
     parser.add_argument('--processes', type=int, default=cpu_count(), required=False,
                         help="Number or parallel processes to use")
     parser.add_argument('--target_len', type=int, default=128, required=False)
-    parser.add_argument('--chunk_size', type=int, default=1024*128, required=False)
+    parser.add_argument('--batch_tokenization', type=int, default=1024, required=False)
+    parser.add_argument('--no_split_long_paragraphs', action="store_true")
 
     # get NameSpace of paramters
     args = parser.parse_args()
