@@ -44,10 +44,22 @@ You can pass the name of a tokenizer from the `huggingface` library to create li
 
 ```bash
 pip install transformes
-python create_dataset.py -i data/enwiki-latest-pages-articles_preprocessed.txt -o data/enwiki-latest-pages-articles_preprocessed_dense_bert_128.tsv --fill_for_tokenizer bert-base-cased -f --target_len 128 --separate_documents
+python create_dataset.py -i data/enwiki-latest-pages-articles_preprocessed.txt -o data/enwiki-latest-pages-articles_preprocessed_dense_bert_128.tsv --fill_for_tokenizer bert-base-cased --target_len 128 --separate_documents
 ```
 
+Other available arguments for `create_dataset.py` are:
+- `-l` or `--limit`: Limit number of rows in output file
+- `-m` or `--min_word_per_sentence`: Minimun number of words in a sentence to be considered (works only when tokenization is disabled')
+- `--fill_for_tokenizer`: Path of some pre-trained tokenizer to be used for splitting and rows filling
+- `--separate_documents`: Do not fill rows with sentence coming from different documents. We suggest to use it
+- `--processes`: Number or parallel processes to use for tokenization
+- `--target_len`: Target length (in tokens) you would like to have on each row
+- `--batch_tokenization`: How many sentence should be tokenizer in one tokenizer call
+- `--no_split_long_paragraphs`: Do not split long paragraphs on multiple lines
+
 ### Multilingual
+
+<font style="color: red">To be updated</font>
 
 You can create a multilingual dataset by passing the lang_file and multiple input files.
 
@@ -63,7 +75,7 @@ Test that created dataset has an average length similar to the one defined throu
 ```bash
 python test_dataset.py -i <create_dataset.tsv> --tokenizer <tokenizer-name> --limit 10000 --column 1
 ```
-If `--tokenizer` is omitted, words average will be counted. `--limit` limits the number of rows to read. The first thousands are usually more than enough for a good statistic. `--column` specifies the column in the `tsv` file in which sentences are stored, default `1`.
+If `--tokenizer` is omitted, words average will be counted. `--limit` limits the number of rows to read (this can be usefull with very long datasets to avout re-tokenizing all the data). The first thousands are usually more than enough for a good statistic. `--column` specifies the column in the `tsv` file in which sentences are stored, default `1` (`0` is the index).
 
 
 # Credits
