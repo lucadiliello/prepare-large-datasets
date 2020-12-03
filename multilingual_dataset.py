@@ -14,33 +14,101 @@ logging.getLogger().setLevel(logging.INFO)
 
 
 
+def get_lang_from_wikipedia_filename(filename):
+    return os.path.basename(filename).strip().lower().split("-")[0].replace("wiki", "")
 
-def main(args):
-    
-    logging.info(f"Checking I/O files")
+def batch_read_with_tokenization_parallel(filename, tok_name, n_cpus):
+
+    def gen_to_queue(input_q, filename):
+        with open(filename) as input_file:
+            # This function simply consume our generator and write it to the input queue
+            for line in input_file:
+                input_q.put(line)
+            for _ in range(n_cpus):    # Once generator is consumed, send end-signal
+                input_q.put(None)
+
+    def process(input_q, output_q, tok_name):
+        tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
+        while True:
+            line = input_q.get()
+            if line is None:
+                output_q.put(None)
+                break
+            else:
+                line = line.strip()
+            if not line.endswith("."):
+                line += "."
+            output_q.put((line, len(tokenizer.encode(line))))
+
+    input_q = Queue()
+    output_q = Queue()
+
+    gen_pool = Pool(1, initializer=gen_to_queue, initargs=(input_q, filename))
+    pool = Pool(n_cpus, initializer=process, initargs=(input_q, output_q, tok_name))
+
+    finished_workers = 0
+    while True:
+        line = output_q.get()
+        if line is None:
+            finished_workers += 1
+            if finished_workers == n_cpus:
+                break
+        else:
+            yield line
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser("Parse multiple wikipedia processed dumps into a single dataset")
+
+    # Global level parameters
+    parser.add_argument('-i', '--input_files', type=str, required=True, nargs='+',
+                        help="List of input wikipedia processed dumps with one sentence per line")
+    parser.add_argument('-l', '--limit', type=int, required=False, default=None,
+                        help='Limit of sentences to be taken from each file')
+    parser.add_argument('-m', '--min_word_per_sentence', type=int, required=False, default=3,
+                        help='Minimun number of words in a sentence to be considered. Works only if `fill_for_tokenizer` is None')
+    parser.add_argument('-o', '--output_file', type=str, required=True,
+                        help='Specify an output file')
+    parser.add_argument('--lang_file', type=str, required=False, default=None,
+                        help="Specify an input language file with pairs of languages and ancronyms")
+    parser.add_argument('-f', '--force_overwrite', action="store_true",
+                        help='Overwrite output file if it does already exist')
+    parser.add_argument('--fill_for_tokenizer', type=str, default=None, required=False,
+                        help="Path of some pre-trained tokenizer")
+    parser.add_argument('--separate_documents', action="store_true",
+                        help="Path of some pre-trained tokenizer")
+    parser.add_argument('--processes', type=int, default=cpu_count(), required=False,
+                        help="Number or parallel processes to use")
+    parser.add_argument('--target_len', type=int, default=128, required=False)
+
+    # get NameSpace of paramters
+    args = parser.parse_args()
+
     if os.path.isfile(args.output_file):
         assert args.force_overwrite, f"Cannot overwrite {args.output_file}, add -f option if you know what you are doing."
         os.remove(args.output_file)
-    assert os.path.isfile(args.input_file), f"Input file {args.input} does not exist"
 
+    for f in args.input_files:
+        assert os.path.isfile(f), f"File {f} does not exist"
 
+    assert not args.lang_file or os.path.isfile(args.lang_file), f"file {args.lang_file} does not exist"
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
+    lang_dict = json.load(open(args.lang_file)) if args.lang_file is not None else None
+    if lang_dict:
+        print(f"Assigning lang ids: {lang_dict}")
 
-    def parse_line(line):
-        line = line.strip()
-        if not line.endswith("."):
-            line += "."
-        return line, len(tokenizer.encode(line))
-
-
-    logging.info(f"Creating dataset from {len(args.input_files)} input file(s)")
+    print(f"Creating dataset from {len(args.input_files)} input file(s)")
 
     with open(args.output_file, "w") as out_file:
         writer = csv.writer(out_file, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
         for _file in tqdm(args.input_files, desc="Processed files", position=0):
             
-            
+            # whether to insert lang _id
+            _id = None
+            if lang_dict is not None:
+                lang_name = get_lang_from_wikipedia_filename(_file)
+                _id = lang_dict[lang_name]['id']
+
             # remember the actual number of written lines
             written_lines = 0
 
@@ -94,35 +162,3 @@ def main(args):
             print(f"Written {written_lines} lines per file {_file} with id {_id}")
 
     print("Done")
-
-
-
-if __name__ == "__main__":
-
-    parser = ArgumentParser("Parse multiple wikipedia processed dumps into a single dataset")
-
-    # Global level parameters
-    parser.add_argument('-i', '--input_file', type=str, required=True,
-                        help="List of input wikipedia processed dumps with one sentence per line")
-    parser.add_argument('-l', '--limit', type=int, required=False, default=None,
-                        help='Limit of sentences to be taken from each file')
-    parser.add_argument('-m', '--min_word_per_sentence', type=int, required=False, default=3,
-                        help='Minimun number of words in a sentence to be considered. Works only if `fill_for_tokenizer` is None')
-    parser.add_argument('-o', '--output_file', type=str, required=True,
-                        help='Specify an output file')
-    parser.add_argument('--lang_file', type=str, required=False, default=None,
-                        help="Specify an input language file with pairs of languages and ancronyms")
-    parser.add_argument('-f', '--force_overwrite', action="store_true",
-                        help='Overwrite output file if it does already exist')
-    parser.add_argument('--fill_for_tokenizer', type=str, default=None, required=False,
-                        help="Path of some pre-trained tokenizer")
-    parser.add_argument('--separate_documents', action="store_true",
-                        help="Path of some pre-trained tokenizer")
-    parser.add_argument('--processes', type=int, default=cpu_count(), required=False,
-                        help="Number or parallel processes to use")
-    parser.add_argument('--target_len', type=int, default=128, required=False)
-
-    # get NameSpace of paramters
-    args = parser.parse_args()
-
-    main(args)
