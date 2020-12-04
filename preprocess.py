@@ -61,8 +61,7 @@ if __name__ == '__main__':
 
     if args.output_file is None:
         input_dump_file_in = Path(args.input_file)
-        args.output_file = input_dump_file_in.parent / \
-            f'{input_dump_file_in.stem}_preprocessed{input_dump_file_in.suffix}'
+        args.output_file = input_dump_file_in.parent / f'{input_dump_file_in.stem}-preprocessed{input_dump_file_in.suffix}'
 
     assert not os.path.isfile(args.output_file) or args.force_overwrite, (
         f"Output file {args.output_file} does already exist"

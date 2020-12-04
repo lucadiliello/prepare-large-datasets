@@ -4,6 +4,7 @@ import os
 import lzma
 import tarfile
 import logging
+from pathlib import Path
 from tqdm import tqdm
 from argparse import ArgumentParser
 from multiprocessing import Pool
@@ -27,16 +28,6 @@ def yield_extracted_files(members, tar):
         yield tar.extractfile(member).read()
 
 def main(args):
-
-    logging.info("Cheking I/O files")
-
-    assert os.path.isfile(args.input_file), (
-        f"Input file {args.input_file} does not exist!"
-    )
-
-    assert args.force or not os.path.isfile(args.output_file), (
-        f"Output file {args.output_file} does not exist, use `--force` to overwrite"
-    )
 
     r"""
     Structure of OpenWebText corpus (openwebcorpus.tar.xz)
@@ -68,9 +59,22 @@ if __name__ == '__main__':
 
     parser = ArgumentParser()
     parser.add_argument('-i', '--input_file', type=str, required=True, help="openwebtext xz compressed tar archive (.tar.xz)")
-    parser.add_argument('-o', '--output_file', type=str, required=True, help="Output txt file")
+    parser.add_argument('-o', '--output_file', type=str, required=False, default=None, help="Output txt file")
     parser.add_argument('-f', '--force', action="store_true", help="Overwrite output file if it exists")
     parser.add_argument('-p', '--processes', type=int, help="Number of parallel processes to spawn", default=multiprocessing.cpu_count())
     args = parser.parse_args()
+
+    if args.output_file is None:
+        input_dump_file_in = Path(args.input_file)
+        args.output_file = input_dump_file_in.parent / f'{input_dump_file_in.name.split(".")[0]}-extracted.txt'
+
+    logging.info("Cheking I/O files")
+
+    assert os.path.isfile(args.input_file), (
+        f"Input file {args.input_file} does not exist!"
+    )
+    assert args.force or not os.path.isfile(args.output_file), (
+        f"Output file {args.output_file} does not exist, use `--force` to overwrite"
+    )
 
     main(args)

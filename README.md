@@ -59,15 +59,18 @@ Other available arguments for `create_dataset.py` are:
 
 ### Multilingual
 
-<font style="color: red">To be updated</font>
+You can create a multilingual dataset by passing the lang_file and multiple input files to `multilingual_dataset.py`. Each file must have been created with `create_dataset.py`, `multilingual_dataset.py` will only do the collage.
 
-You can create a multilingual dataset by passing the lang_file and multiple input files.
-
+Example with many (multilingual) wikipedia:
 ```bash
-python create_dataset.py -i data/*_preprocessed.txt -o data/multilingual_dataset.tsv --fill_for_tokenizer bert-base-multilingual-cased -f --target_len 128 --lang_file lang_dict.json
+python multilingual_dataset.py -i data/wikipedia/*-dataset.tsv -o data/wikipedia/multilingual-dataset.tsv --lang_file wikipedia/lang_maps/lang_dict.json
 ```
 
-Each line will contain an additional id of the language. `ids` are store in `lang_dict.json`.
+Each line will contain an additional id of the language. `ids` are retrieved from `lang_dict.json`.
+
+Additional parameters:
+- `-l` or `--limit`: Limit of sentences to be taken from each file
+- `-f` or `--force-overwrite`: Force overwrite of output file if it does already exist
 
 
 ## Test

@@ -3,9 +3,8 @@ from argparse import ArgumentParser
 import csv
 import json
 import logging
-import transformers
+import logging
 from tqdm import tqdm
-from multiprocessing import cpu_count, Pool, Queue
 
 
 FORMAT_LOGGING = '%(levelname)s: %(message)s'
@@ -13,48 +12,66 @@ logging.basicConfig(format=FORMAT_LOGGING)
 logging.getLogger().setLevel(logging.INFO)
 
 
-
 def get_lang_from_wikipedia_filename(filename):
+    """ Expected filename like `enwiki-dump-latest.tsv` ..."""
     return os.path.basename(filename).strip().lower().split("-")[0].replace("wiki", "")
 
-def batch_read_with_tokenization_parallel(filename, tok_name, n_cpus):
+def main(args):
 
-    def gen_to_queue(input_q, filename):
-        with open(filename) as input_file:
-            # This function simply consume our generator and write it to the input queue
-            for line in input_file:
-                input_q.put(line)
-            for _ in range(n_cpus):    # Once generator is consumed, send end-signal
-                input_q.put(None)
+    logging.info("Checking I/O files")
+    assert not os.path.isfile(args.output_file) or args.force_overwrite, (
+        f"Cannot overwrite {args.output_file}, add -f option if you know what you are doing."
+    )
+    for f in args.input_files:
+        assert os.path.isfile(f), (
+            f"File {f} does not exist"
+        )
+    assert not args.lang_file or os.path.isfile(args.lang_file), (
+        f"file {args.lang_file} does not exist"
+    )
 
-    def process(input_q, output_q, tok_name):
-        tokenizer = transformers.AutoTokenizer.from_pretrained(tok_name)
-        while True:
-            line = input_q.get()
-            if line is None:
-                output_q.put(None)
-                break
-            else:
-                line = line.strip()
-            if not line.endswith("."):
-                line += "."
-            output_q.put((line, len(tokenizer.encode(line))))
+    logging.info("Eventually loading lang file")
+    lang_dict = json.load(open(args.lang_file)) if args.lang_file is not None else None
+    if lang_dict:
+        logging.info(f"Assigning lang ids: {lang_dict}")
+        lang_ids = []
+        for filename in args.input_files:
+            lang_name = get_lang_from_wikipedia_filename(filename)
+            assert lang_name in lang_dict, (
+                f"Could not recognize language of file {filename} "
+                f"Assert filename is like `enwiki-*` or simply `it-*`"
+            )
+            lang_ids.append(
+                lang_dict[lang_name]['id']
+            )
+    else:
+        lang_ids = [None] * len(args.input_files)
 
-    input_q = Queue()
-    output_q = Queue()
+    logging.info(f"Creating dataset from {len(args.input_files)} input file(s)")
 
-    gen_pool = Pool(1, initializer=gen_to_queue, initargs=(input_q, filename))
-    pool = Pool(n_cpus, initializer=process, initargs=(input_q, output_q, tok_name))
+    written_lines = 0
+    with open(args.output_file, "w") as out_file:
+        writer = csv.writer(out_file, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
 
-    finished_workers = 0
-    while True:
-        line = output_q.get()
-        if line is None:
-            finished_workers += 1
-            if finished_workers == n_cpus:
-                break
-        else:
-            yield line
+        for filename, lang_id in tqdm(zip(args.input_files, lang_ids), desc="Processed files", position=0):
+
+            # remember the actual number of written lines
+            written_lines_file = 0
+            with open(filename) as in_file:
+                filename_reader = csv.reader(in_file, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+                for line in tqdm(filename_reader, desc="Processing lines", position=1):
+                    row = [written_lines, lang_id, line[1]] if lang_id is not None else [written_lines, line[1]]
+                    writer.writerow(row)
+                    written_lines_file += 1
+                    written_lines += 1
+
+                    if args.limit and written_lines_file >= args.limit:
+                        break
+
+                logging.info(f"- Written {written_lines_file} lines from file {filename} with id {lang_id}")
+    
+    logging.info(f"- Written a total of {written_lines}, done!")
 
 
 if __name__ == "__main__":
@@ -65,100 +82,14 @@ if __name__ == "__main__":
                         help="List of input wikipedia processed dumps with one sentence per line")
     parser.add_argument('-l', '--limit', type=int, required=False, default=None,
                         help='Limit of sentences to be taken from each file')
-    parser.add_argument('-m', '--min_word_per_sentence', type=int, required=False, default=3,
-                        help='Minimun number of words in a sentence to be considered. Works only if `fill_for_tokenizer` is None')
     parser.add_argument('-o', '--output_file', type=str, required=True,
                         help='Specify an output file')
     parser.add_argument('--lang_file', type=str, required=False, default=None,
                         help="Specify an input language file with pairs of languages and ancronyms")
     parser.add_argument('-f', '--force_overwrite', action="store_true",
                         help='Overwrite output file if it does already exist')
-    parser.add_argument('--fill_for_tokenizer', type=str, default=None, required=False,
-                        help="Path of some pre-trained tokenizer")
-    parser.add_argument('--separate_documents', action="store_true",
-                        help="Path of some pre-trained tokenizer")
-    parser.add_argument('--processes', type=int, default=cpu_count(), required=False,
-                        help="Number or parallel processes to use")
-    parser.add_argument('--target_len', type=int, default=128, required=False)
 
     # get NameSpace of paramters
     args = parser.parse_args()
 
-    if os.path.isfile(args.output_file):
-        assert args.force_overwrite, f"Cannot overwrite {args.output_file}, add -f option if you know what you are doing."
-        os.remove(args.output_file)
-
-    for f in args.input_files:
-        assert os.path.isfile(f), f"File {f} does not exist"
-
-    assert not args.lang_file or os.path.isfile(args.lang_file), f"file {args.lang_file} does not exist"
-
-    lang_dict = json.load(open(args.lang_file)) if args.lang_file is not None else None
-    if lang_dict:
-        print(f"Assigning lang ids: {lang_dict}")
-
-    print(f"Creating dataset from {len(args.input_files)} input file(s)")
-
-    with open(args.output_file, "w") as out_file:
-        writer = csv.writer(out_file, delimiter="\t", quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        for _file in tqdm(args.input_files, desc="Processed files", position=0):
-            
-            # whether to insert lang _id
-            _id = None
-            if lang_dict is not None:
-                lang_name = get_lang_from_wikipedia_filename(_file)
-                _id = lang_dict[lang_name]['id']
-
-            # remember the actual number of written lines
-            written_lines = 0
-
-            def write(l, written_lines):
-                row = [written_lines, _id, l] if _id is not None else [written_lines, l]
-                writer.writerow(row)
-                return written_lines + 1
-
-            # used to accumulate sequences
-            accumulator = None
-            accumulator_len = 0
-
-            for line, line_len in tqdm(batch_read_with_tokenization_parallel(_file, args.fill_for_tokenizer, args.processes), desc="Processing lines", position=1):
-
-                if args.limit and written_lines >= args.limit:
-                    break
-
-                line = line.strip()
-
-                # without tokenizer write line by line
-                if args.fill_for_tokenizer is None:
-                    if len(line.split()) >= args.min_word_per_sentence:
-                        written_lines = write(line, written_lines)
-                
-                else:
-                    # length of actual line in tokens
-
-                    # if we are under the max len
-                    if accumulator is None:
-                        accumulator = line
-                        accumulator_len = line_len
-
-                    # if adding the new sequence is still under the max len
-                    elif (
-                        (accumulator_len + line_len <= args.target_len) and
-                        (not args.separate_documents or len(line) > 0) # empty lines are used to separate documents
-                    ):
-                        accumulator = accumulator + " " + line if accumulator else line
-                        accumulator_len += line_len
-    
-                    # if we went over, write and init accu with actual line
-                    else:
-                        written_lines = write(accumulator, written_lines)
-                        accumulator = line
-                        accumulator_len = line_len
-
-            # if last accumulator was not written because for cycle ended before, write it now
-            if (not args.limit or written_lines >= args.limit) and accumulator:
-                written_lines = write(accumulator, written_lines)
-
-            print(f"Written {written_lines} lines per file {_file} with id {_id}")
-
-    print("Done")
+    main(args)
