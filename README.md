@@ -1,20 +1,20 @@
 # prepare-large-datasets
-Process wikipedia or other large corpuses and create a dataset for NLP applications. Data preparation is available, at the moment, only or wikipedia and 
+Process wikipedia or other large corpuses and create a dataset for NLP applications. Data preparation is available, at the moment, only or wikipedia and openwebtext.
 
 ## Data preparation
 
-Data will be generated containing a paragraph per line and empty lines separating different documents.
+Data will be generated containing a paragraph per line and empty lines separating different documents. Data cleaning is performed in the next section.
 
 ### Wikipedia
-Preprocessing of wikipedia dumps is described [here](wikipedia/)
+Downloading and preparation of wikipedia dumps is described [here](wikipedia/)
 
 ### OpenWebText Corpus
-Preprocessing of owt archives is described [here](openwebtext/)
+Preparation of owt archives is described [here](openwebtext/)
 
 
 ## Pre-process the data
 
-Preprocess data and save in a file with the same name and `_preprocessed` suffix. Be sure to install the `blingfire` tokenizer:
+This script preprocesses and cleans data and saves them in a file with the same name plus the `_preprocessed` suffix. Be sure to install the `blingfire` tokenizer:
 
 ```bash
 pip install blingfire
@@ -33,7 +33,16 @@ paragraph-2 # doc 1
 ...
 ```
 
-that is, documents are separated by empty lines and paragraphs within documents stay on different lines.
+Example:
+```txt
+Game Boy Advance. The (GBA) is a 32-bit handheld game console developed, manufactured and marketed by Nintendo as the successor to the Game Boy Color. It was released in Japan on March 21, 2001, in North America on June 11, 2001, in Australia and Europe on June 22, 2001, and in mainland China on June 8, 2004 as iQue Game Boy Advance. The GBA is part of the sixth generation of video game consoles. The original model does not have an illuminated screen; Nintendo addressed that with the release of a redesigned model with a frontlit screen, the Game Boy Advance SP, in 2003. A newer revision of the redesign was released in 2005, with a backlit screen. The final redesign, the Game Boy Micro, was released in 2005.
+As of June 30, 2010, 81.51 million units of the Game Boy Advance series have been sold worldwide. Its successor, the Nintendo DS, was released in November 2004 and is backward compatible with Game Boy Advance software.
+
+Google Search. Google Search, or simply Google, is a web search engine developed by Google LLC. It is the most used search engine on the World Wide Web across all platforms, with 92.62% market share as of June 2019, handling more than 5.4 billion searches each day.
+The order of search results returned by Google is based, in part, on a priority rank system called "PageRank". Google Search also provides many different options for customized search, using symbols to include, exclude, specify or require certain search behavior, and offers specialized interactive experiences, such as flight status and package tracking, weather forecasts, currency, unit, and time conversions, word definitions, and more.
+
+...
+```
 
 
 ## Create the dataset
