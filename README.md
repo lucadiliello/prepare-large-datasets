@@ -1,5 +1,5 @@
 # prepare-large-datasets
-Process wikipedia or other large corpuses and create a dataset for NLP applications. Data preparation is available, at the moment, only or wikipedia and openwebtext.
+Process wikipedia or other large corpuses and create a dataset for NLP applications. Data preparation is available, at the moment, only for wikipedia and openwebtext.
 
 ## Data preparation
 
